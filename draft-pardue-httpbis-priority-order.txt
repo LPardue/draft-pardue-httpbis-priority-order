@@ -1,0 +1,310 @@
+
+
+
+
+HTTP                                                           L. Pardue
+Internet-Draft                                                Cloudflare
+Intended status: Standards Track                           14 March 2023
+Expires: 15 September 2023
+
+
+                     HTTP priority order extension
+               draft-pardue-httpbis-priority-order-latest
+
+Abstract
+
+   The send-order parameter for the HTTP extensible prioritization
+   scheme allows explicit ordering indication independent of request
+   order.  This can be used to as an additional input signal to
+   scheduling decisions, to support alternative sending behaviors.
+
+About This Document
+
+   This note is to be removed before publishing as an RFC.
+
+   The latest revision of this draft can be found at
+   https://LPardue.github.io/draft-pardue-httpbis-priority-order/draft-
+   pardue-httpbis-priority-order.html.  Status information for this
+   document may be found at https://datatracker.ietf.org/doc/draft-
+   pardue-httpbis-priority-order/.
+
+   Discussion of this document takes place on the HTTP Working Group
+   mailing list (mailto:ietf-http-wg@w3.org), which is archived at
+   https://lists.w3.org/Archives/Public/ietf-http-wg/.
+
+   Source for this draft and an issue tracker can be found at
+   https://github.com/LPardue/draft-pardue-httpbis-priority-order.
+
+Status of This Memo
+
+   This Internet-Draft is submitted in full conformance with the
+   provisions of BCP 78 and BCP 79.
+
+   Internet-Drafts are working documents of the Internet Engineering
+   Task Force (IETF).  Note that other groups may also distribute
+   working documents as Internet-Drafts.  The list of current Internet-
+   Drafts is at https://datatracker.ietf.org/drafts/current/.
+
+   Internet-Drafts are draft documents valid for a maximum of six months
+   and may be updated, replaced, or obsoleted by other documents at any
+   time.  It is inappropriate to use Internet-Drafts as reference
+   material or to cite them other than as "work in progress."
+
+   This Internet-Draft will expire on 15 September 2023.
+
+Copyright Notice
+
+   Copyright (c) 2023 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents (https://trustee.ietf.org/
+   license-info) in effect on the date of publication of this document.
+   Please review these documents carefully, as they describe your rights
+   and restrictions with respect to this document.  Code Components
+   extracted from this document must include Revised BSD License text as
+   described in Section 4.e of the Trust Legal Provisions and are
+   provided without warranty as described in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction
+   2.  Conventions and Definitions
+   3.  The send-order parameter
+   4.  Server Scheduling
+   5.  Security Considerations
+   6.  IANA Considerations
+   7.  Normative References
+   Acknowledgments
+   Author's Address
+
+1.  Introduction
+
+   The extensible prioritization scheme for HTTP provides guidance for
+   servers using priority signals to schedule the sending of stream
+   data; Section 10 of [RFC9218].  It recommends that when there are
+   multiple items with the same urgency servers choose how to allocate
+   bandwidth by considering the stream ID and incremental parameter, and
+   possibly other signals.
+
+   In web use cases, an HTML document can include other resources and
+   user agents tend to issue requests in an ordered sequence that
+   matches the actions of HTML or HTTP receiver processing.  Requests
+   are made using ascending stream IDs where lower-numbered streams
+   typically relate to objects that were discovered earlier than higher-
+   numbered streams.  Because stream IDs represent an ordering that
+   closely matches the receiver processing needs, the scheduling
+   guidance in [RFC9218] can be effectively used to send data that is
+   optimal for this consumption pattern.  As a simple example, a client
+   that issues non-incremental requests of the same urgency on streams
+   0, 4, 8 and 12 would expect a server , that is following Section 10
+   of [RFC9218], to serve the response in the order 0, 4, 8 and 12.
+
+   A strictly singular serving order is unlikely to meet the needs of
+   HTTP-based applications.  The urgency and incremental parameters
+   augment stream ID, urgency allows more important resources (from a
+   processing perspective) to be sent ahead of less important resources,
+   while incremental streams share bandwidth among resources that can be
+   effectively loaded in parallel.
+
+   There are other use cases where the user agent may not be able to
+   influence the order of request emission in the most optimal sequence,
+   or may discover an important resource late on and would like the
+   response to "jump the queue" of other streams within a single urgency
+   level.  The send-order parameter defined by this document can be used
+   in these situations.  While it might be possible to achieve a similar
+   outcome by careful use of the urgency parameter, such as reserving an
+   urgency level, the limited number of levels can make this approach
+   difficult in practice.  Alternatively, rebalancing or
+   reprioritization of concurrent stream urgencies might also achieve
+   these goals but encounters issues related to churn and responsiveness
+   due to the latency of reprioritization signals.
+
+2.  Conventions and Definitions
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in
+   BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+   This document uses the following terminology from Section 3 of
+   [STRUCTURED-FIELDS] to specify syntax and parsing: Boolean,
+   Dictionary, and Integer.
+
+   Example HTTP requests and responses use the HTTP/2-style formatting
+   from [HTTP/2].
+
+   This document uses the variable-length integer encoding from [QUIC].
+
+3.  The send-order parameter
+
+   The send-order (bikeshed-order-name) parameter value is Integer (see
+   Section 3.3.1 of [STRUCTURED-FIELDS]), between 0 and 2^32.  The range
+   is ascending, higher values have precedence over lower values.
+
+   Endpoints use send-order to communicate an ordering precedence that
+   is independent of the request order.  There is no default value,
+   omission of the parameter means that there is no additional ordering
+   preference.
+
+   The send-order parameter satisfies the urgency and incremental
+   parameter compatibility requirements in Section 4.3 of [RFC9218].
+
+   The following example shows an HTTP/3 client issuing multiple
+   requests on the same connection, without the send-order parameter,
+   and responses sent by a server following the guidance in Section 10
+   of [RFC9218].
+
+   Client                              Server
+
+   HEADERS (stream 0)
+     :method = GET
+     :scheme = https
+     :authority = example.net
+     :path = /image1.jpg
+     priority = u=1
+
+   HEADERS (stream 4)
+     :method = GET
+     :scheme = https
+     :authority = example.net
+     :path = /image2.jpg
+     priority = u=1
+
+   HEADERS (stream 8)
+     :method = GET
+     :scheme = https
+     :authority = example.net
+     :path = /image3.jpg
+     priority = u=1
+
+                                     HEADERS (stream 0)
+                                       :status = 200
+                                       content-type = image/jpeg
+
+                                     DATA (stream 0)
+                                       {binary data}
+
+                                     HEADERS (stream 4)
+                                       :status = 200
+                                       content-type = image/jpeg
+
+                                     DATA (stream 4)
+                                       {binary data}
+
+                                     HEADERS (stream 8)
+                                       :status = 200
+                                       content-type = image/jpeg
+
+                                     DATA (stream 8)
+                                       {binary data}
+
+   The following example shows an HTTP/3 client issuing multiple
+   requests on the same connection, without the send-order parameter,
+   and responses sent by a server following the guidance in Section 4.
+
+   Client                              Server
+
+   HEADERS (stream 0)
+     :method = GET
+     :scheme = https
+     :authority = example.net
+     :path = /image1.jpg
+     priority = u=1
+
+   HEADERS (stream 4)
+     :method = GET
+     :scheme = https
+     :authority = example.net
+     :path = /image2.jpg
+     priority = u=1,bikeshed-order-name=25
+
+   HEADERS (stream 8)
+     :method = GET
+     :scheme = https
+     :authority = example.net
+     :path = /image3.jpg
+     priority = u=1,bikeshed-order-name=15
+
+                                     HEADERS (stream 4)
+                                       :status = 200
+                                       content-type = image/jpeg
+
+                                     DATA (stream 4)
+                                       {binary data}
+
+                                     HEADERS (stream 8)
+                                       :status = 200
+                                       content-type = image/jpeg
+
+                                     DATA (stream 8)
+                                       {binary data}
+
+                                     HEADERS (stream 0)
+                                       :status = 200
+                                       content-type = image/jpeg
+
+                                     DATA (stream 0)
+                                       {binary data}
+
+4.  Server Scheduling
+
+   This document updates the scheduling guidance in Section 10 of
+   [RFC9218].
+
+   Non-incremental responses of the same urgency SHOULD be served by
+   prioritizing bandwidth allocation in ascending order of send-order.
+   If there are no responses with a send-order, allocation SHOULD use
+   ascending order of stream ID.
+
+   Incremental responses of the same urgency are not affected by send-
+   order.
+
+5.  Security Considerations
+
+   The considerations in [RFC9218] apply.  There are not believed to be
+   any additional considerations.
+
+6.  IANA Considerations
+
+   TODO
+
+7.  Normative References
+
+   [HTTP/2]   Thomson, M., Ed. and C. Benfield, Ed., "HTTP/2", RFC 9113,
+              DOI 10.17487/RFC9113, June 2022,
+              <https://www.rfc-editor.org/rfc/rfc9113>.
+
+   [QUIC]     Iyengar, J., Ed. and M. Thomson, Ed., "QUIC: A UDP-Based
+              Multiplexed and Secure Transport", RFC 9000,
+              DOI 10.17487/RFC9000, May 2021,
+              <https://www.rfc-editor.org/rfc/rfc9000>.
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/rfc/rfc2119>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
+              May 2017, <https://www.rfc-editor.org/rfc/rfc8174>.
+
+   [RFC9218]  Oku, K. and L. Pardue, "Extensible Prioritization Scheme
+              for HTTP", RFC 9218, DOI 10.17487/RFC9218, June 2022,
+              <https://www.rfc-editor.org/rfc/rfc9218>.
+
+   [STRUCTURED-FIELDS]
+              Nottingham, M. and P-H. Kamp, "Structured Field Values for
+              HTTP", RFC 8941, DOI 10.17487/RFC8941, February 2021,
+              <https://www.rfc-editor.org/rfc/rfc8941>.
+
+Acknowledgments
+
+   TODO acknowledge.
+
+Author's Address
+
+   Lucas Pardue
+   Cloudflare
+   Email: lucaspardue.24.7@gmail.com
